@@ -204,6 +204,16 @@ func (h *Handler) assembleUpstreamReq(signer *v4.Signer, req *http.Request, regi
 
 // Do validates the incoming request and create a new request for an upstream server
 func (h *Handler) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
+
+	log.Infof("Dan wuz here")
+	dump, err1 := httputil.DumpRequest(req, true)
+	if err1 == nil {
+		log.Infof("%s", dump)
+	} else {
+		log.Infof("Unable to dump out incoming request")
+	}
+	log.Infof("Dan wuz here 2")
+
 	// Ensure the request was sent from an allowed IP address
 	err := h.validateIncomingSourceIP(req)
 	if err != nil {

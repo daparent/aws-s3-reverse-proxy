@@ -1,0 +1,157 @@
+version: '3.7'
+
+x-minio-common: &minio-common
+  image: quay.io/minio/minio:RELEASE.2024-03-15T01-07-19Z
+  command: server --console-address ":9001" http://minio{1...4}/data{1...2}
+  expose:
+    - "9000"
+    - "9001"
+  environment:
+    MINIO_ROOT_USER: admin
+    MINIO_ROOT_PASSWORD: $MINIO_ROOT_PASSWORD
+    # MINIO_IDENTITY_OPENID_CONFIG_URL_PRIMARY_IAM: "http://keycload:8080/realms/master/.well-known/opend-configuration"
+    # MINIO_IDENITY_OPENID_CLIENT_ID_PRIMARY_IAM: "minio"
+    # MINIO_IDENTITY_OPENID_CLIENT_SECRET_PRIMARY_IAM: $MINIO_CLIENT_SECRET_PRIMARY_IAM
+    # MINIO_IDENTITY_OPENID_DISPLAY_NAME_PRIMARY_IAM: "Keycloak"
+    # MINIO_IDENTITY_OPENID_SCOPES_PRIMARY_IAM: "openid,email,preferred_username"
+    # MINIO_IDENTITY_OPENID_REDIRECT_URI_DYNAMIC_PRIMARY_IAM: "on"
+  healthcheck:
+    test: ["CMD", "mc", "ready", "local"]
+    interval: 5s
+    timeout: 5s
+    retries: 5
+  restart: on-failure
+  depends_on:
+    - keycloak
+      # condition: service_healthy
+
+services:
+  keycloak:
+    image: keycloak/keycloak:24.0.1
+    container_name: keycloak
+    hostname: keycloak
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: "jdbc:postresql://postgres/keycloak"
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: $DB_PASSWORD
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: $KEYCLOAK_ADMIN_PASSWORD
+    restart: on-failure
+    ports:
+      - 8080:8080
+    command:
+      - "start-dev"
+    depends_on:
+      - postgres
+    # healthcheck:
+    #   test: ["CMD-SHELL", "curl -f http://localhost:8080/realms/master"]
+    #   interval: 30s
+    #   timeout: 20s
+    #   retries: 3
+  postgres:
+    image: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: $DB_PASSWORD
+    restart: on-failure
+  minio1:
+    <<: *minio-common
+    hostname: minio1
+    volumes:
+      - data1-1:/data1
+      - data1-2:/data2
+  minio2:
+    <<: *minio-common
+    hostname: minio2
+    volumes:
+      - data2-1:/data1
+      - data2-2:/data2
+  minio3:
+    <<: *minio-common
+    hostname: minio3
+    volumes:
+      - data3-1:/data1
+      - data3-2:/data2
+  minio4:
+    <<: *minio-common
+    hostname: minio4
+    volumes:
+      - data4-1:/data1
+      - data4-2:/data2
+  nginx:
+    image: nginx:1.19.2-alpine
+    hostname: nginx
+    container_name: nginx
+    restart: on-failure
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - 9000:9000
+      - 9001:9001
+    depends_on:
+      - minio1
+      - minio2
+      - minio3
+      - minio4
+  vault:
+    image: hashicorp/vault:1.16
+    container_name: vault
+    hostname: vault
+    restart: on-failure
+    ports:
+      - 8200:8200
+    environment:
+      VAULT_ADDR: "https://0.0.0.0:8200"
+      VAULT_API_ADDR: "https://0.0.0.0:8200"
+      VAULT_ADDRESS: "https://0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./.local/vault/config:/vault/config:rw
+      - ./.local/vault/policies:/vault/policies:rw
+      - ./.local/vault/data:/vault/data:rw
+      - ./.local/vault/log:/vault/log:rw
+    healthcheck:
+      retries: 5
+    command:
+      - server
+  aws-s3-reverse-proxy:
+    image: aws-s3-reverse-proxy:latest
+    container_name: aws-s3-reverse-proxy
+    hostname: as3rp
+    restart: on-failure
+    ports:
+      - 8099:8099
+    environment:
+      ALLOWED_SOURCE_SUBNET: "0.0.0.0/0"
+      ALLOWED_ENDPOINT: "localhost:8099"
+      UPSTREAM_ENDPOINT: "nginx:9000"
+      UPSTREAM_INSECURE: "true"
+      WRITE_DATALAKE_CREDENTIALS: $WRITE_DATALAKE_CREDENTIALS
+      AWS_REGION: $AWS_REGION
+    depends_on:
+      - nginx
+volumes:
+  data1-1:
+    external: true
+  data1-2:
+    external: true
+  data2-1:
+    external: true
+  data2-2:
+    external: true
+  data3-1:
+    external: true
+  data3-2:
+    external: true
+  data4-1:
+    external: true
+  data4-2:
+    external: true
+  postgres_data:
+    external: true

@@ -18,18 +18,20 @@ import (
 
 // Options for aws-s3-reverse-proxy command line arguments
 type Options struct {
-	Debug                 bool
-	ListenAddr            string
-	MetricsListenAddr     string
-	PprofListenAddr       string
-	AllowedSourceEndpoint string
-	AllowedSourceSubnet   []string
-	AwsCredentials        []string
-	Region                string
-	UpstreamInsecure      bool
-	UpstreamEndpoint      string
-	CertFile              string
-	KeyFile               string
+	Debug                    bool
+	ListenAddr               string
+	MetricsListenAddr        string
+	PprofListenAddr          string
+	AllowedSourceEndpoint    string
+	AllowedSourceSubnet      []string
+	AwsCredentials           []string
+	Region                   string
+	UpstreamInsecure         bool
+	UpstreamEndpoint         string
+	CertFile                 string
+	KeyFile                  string
+	WriteDatalakeCredentials string
+	ReadDatalakeCredentials  string
 }
 
 // NewOptions defines and parses the raw command line arguments
@@ -47,8 +49,28 @@ func NewOptions() Options {
 	kingpin.Flag("upstream-endpoint", "use this S3 endpoint for upstream connections, instead of public AWS S3 (env - UPSTREAM_ENDPOINT)").Envar("UPSTREAM_ENDPOINT").StringVar(&opts.UpstreamEndpoint)
 	kingpin.Flag("cert-file", "path to the certificate file (env - CERT_FILE)").Envar("CERT_FILE").Default("").StringVar(&opts.CertFile)
 	kingpin.Flag("key-file", "path to the private key file (env - KEY_FILE)").Envar("KEY_FILE").Default("").StringVar(&opts.KeyFile)
+	kingpin.Flag("write-datalake-credentials", "set of credentials that provide write access to the datalake").PlaceHolder("\"WRITE_DATALAKE_KEY_ID,WRITE_DATALAKE_ACCESS_KEY\"").Envar("WRITE_DATALAKE_CREDENTIALS").StringVar(&opts.WriteDatalakeCredentials)
+	kingpin.Flag("read-datalake-credentials", "set of credentials that provide read access to the datalake").PlaceHolder("\"READ_DATALAKE_KEY_ID,READ_DATALAKE_ACCESS_KEY\"").Envar("READ_DATALKE_CREDENTIALS").StringVar(&opts.ReadDatalakeCredentials)
 	kingpin.Parse()
 	return opts
+}
+
+func ValidateJWTToken(token string) bool {
+	return true
+}
+
+func GetCredsBasedOnTokenAndOperation(token string, op string) map[string]string {
+	writeCred := make(map[string]string)
+	readCred := make(map[string]string)
+	awsCreds := make(map[string]map[string]string)
+	writeCred["ACCESS_KEY"] = "SECRET_KEY"
+	readCred["ACCESS_KEY"] = "SECRET_KEY"
+	awsCreds["writer"] = writeCred
+	awsCreds["reader"] = readCred
+	if op != "writer" {
+		op = "reader"
+	}
+	return awsCreds[op]
 }
 
 // NewAwsS3ReverseProxy parses all options and creates a new HTTP Handler
@@ -72,17 +94,22 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 		parsedAllowedSourceSubnet = append(parsedAllowedSourceSubnet, subnet)
 	}
 
-	parsedAwsCredentials := make(map[string]string)
-	for _, cred := range opts.AwsCredentials {
-		d := strings.Split(cred, ",")
-		if len(d) != 2 || len(d[0]) < 16 || len(d[1]) < 1 {
-			return nil, fmt.Errorf("Invalid AWS credentials. Did you separate them with a ',' or are they too short?")
-		}
-		parsedAwsCredentials[d[0]] = d[1]
-	}
+	// parsedAwsCredentials := make(map[string]string)
+	// for _, cred := range opts.AwsCredentials {
+	// 	d := strings.Split(cred, ",")
+	// 	if len(d) != 2 || len(d[0]) < 16 || len(d[1]) < 1 {
+	// 		return nil, fmt.Errorf("Invalid AWS credentials. Did you separate them with a ',' or are they too short?")
+	// 	}
+	// 	parsedAwsCredentials[d[0]] = d[1]
+	// }
 
+	if !ValidateJWTToken("test") {
+		return nil, fmt.Errorf("invalid jwt token, blocking request at reverse proxy")
+	}
+	parsedAwsCredentials := GetCredsBasedOnTokenAndOperation("test", "writer")
 	signers := make(map[string]*v4.Signer)
 	for accessKeyID, secretAccessKey := range parsedAwsCredentials {
+		log.Infof("accessKeyID: [%s], secretAccessKey: [%s]", accessKeyID, secretAccessKey)
 		signers[accessKeyID] = v4.NewSigner(credentials.NewStaticCredentialsFromCreds(credentials.Value{
 			AccessKeyID:     accessKeyID,
 			SecretAccessKey: secretAccessKey,
