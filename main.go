@@ -59,11 +59,18 @@ func ValidateJWTToken(token string) bool {
 	return true
 }
 
-func GetCredsBasedOnTokenAndOperation(token string, op string) map[string]string {
+func GetCredsBasedOnTokenAndOperation(opts Options, token string, op string) map[string]string {
 	writeCred := make(map[string]string)
 	readCred := make(map[string]string)
 	awsCreds := make(map[string]map[string]string)
-	writeCred["ACCESS_KEY"] = "SECRET_KEY"
+
+	d := strings.Split(opts.WriteDatalakeCredentials, ",")
+	if len(d) != 2 || len(d[0]) < 16 || len(d[1]) < 1 {
+		writeCred["ACCESS_KEY"] = "SECRET_KEY"
+	} else {
+		writeCred[d[0]] = d[1]
+	}
+
 	readCred["ACCESS_KEY"] = "SECRET_KEY"
 	awsCreds["writer"] = writeCred
 	awsCreds["reader"] = readCred
@@ -106,7 +113,7 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 	if !ValidateJWTToken("test") {
 		return nil, fmt.Errorf("invalid jwt token, blocking request at reverse proxy")
 	}
-	parsedAwsCredentials := GetCredsBasedOnTokenAndOperation("test", "writer")
+	parsedAwsCredentials := GetCredsBasedOnTokenAndOperation(opts, "test", "writer")
 	signers := make(map[string]*v4.Signer)
 	for accessKeyID, secretAccessKey := range parsedAwsCredentials {
 		log.Infof("accessKeyID: [%s], secretAccessKey: [%s]", accessKeyID, secretAccessKey)

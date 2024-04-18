@@ -242,14 +242,24 @@ func (h *Handler) buildUpstreamRequest(req *http.Request) (*http.Request, error)
 
 	// Verify that the fake request and the incoming request have the same signature
 	// This ensures it was sent and signed by a client with correct AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
-	cmpResult := subtle.ConstantTimeCompare([]byte(fakeReq.Header["Authorization"][0]), []byte(req.Header["Authorization"][0]))
-	if cmpResult == 0 {
-		v, _ := httputil.DumpRequest(fakeReq, false)
-		log.Debugf("Fake request: %v", string(v))
-
-		v, _ = httputil.DumpRequest(req, false)
-		log.Debugf("Incoming request: %v", string(v))
-		return nil, fmt.Errorf("invalid signature in Authorization header")
+	// split based on commas and compare sections, tools like s3cmd do not put spaces after the commas:
+	fakeAuthHeaderParts := strings.Split(fakeReq.Header["Authorization"][0], ",")
+	incAuthHeaderParts := strings.Split(req.Header["Authorization"][0], ",")
+	cmpResult := 0
+	if len(fakeAuthHeaderParts) == len(incAuthHeaderParts) {
+		for idx, element := range fakeAuthHeaderParts {
+			cmpResult = subtle.ConstantTimeCompare([]byte(strings.Trim(element, " ")), []byte(strings.Trim(incAuthHeaderParts[idx], " ")))
+			if cmpResult == 0 {
+				v, _ := httputil.DumpRequest(fakeReq, false)
+				log.Debugf("Fake request: %v", string(v))
+				v, _ = httputil.DumpRequest(req, false)
+				log.Debugf("Incoming request: %v", string(v))
+				return nil, fmt.Errorf("invalid signature in Authorization header part %d, fake is %s, incoming is %s", idx, element, incAuthHeaderParts[idx])
+			}
+		}
+	} else {
+		log.Debugf("fakeAuthHeaderParts length: %d, incAuthHeaderParts length: %d", len(fakeAuthHeaderParts), len(incAuthHeaderParts))
+		return nil, fmt.Errorf("mismatched parts in fake Authorization header compared to Incoming header")
 	}
 
 	if log.GetLevel() == log.DebugLevel {
