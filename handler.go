@@ -99,6 +99,11 @@ func (h *Handler) validateIncomingSourceIP(req *http.Request) error {
 	for _, subnet := range h.AllowedSourceSubnet {
 		ip, _, _ := net.SplitHostPort(req.RemoteAddr)
 		userIP := net.ParseIP(ip)
+		// Working around windows using IPv6 localhost shorthand
+		if userIP.String() == "::1" {
+			userIP = net.ParseIP("127.0.0.1")
+		}
+		log.Debugf("userIP is %s and subnet is %s", userIP, subnet)
 		if subnet.Contains(userIP) {
 			allowed = true
 		}
