@@ -18,20 +18,22 @@ import (
 
 // Options for aws-s3-reverse-proxy command line arguments
 type Options struct {
-	Debug                    bool
-	ListenAddr               string
-	MetricsListenAddr        string
-	PprofListenAddr          string
-	AllowedSourceEndpoint    string
-	AllowedSourceSubnet      []string
-	AwsCredentials           []string
-	Region                   string
-	UpstreamInsecure         bool
-	UpstreamEndpoint         string
-	CertFile                 string
-	KeyFile                  string
-	WriteDatalakeCredentials string
-	ReadDatalakeCredentials  string
+	Debug                 bool
+	ListenAddr            string
+	MetricsListenAddr     string
+	PprofListenAddr       string
+	AllowedSourceEndpoint string
+	AllowedSourceSubnet   []string
+	AwsCredentials        []string
+	Region                string
+	UpstreamInsecure      bool
+	UpstreamEndpoint      string
+	CertFile              string
+	KeyFile               string
+	WriteProdS3Bucket     string
+	ReadProdS3Bucket      string
+	UserS3Bucket          string
+	AdminS3Bucket         string
 }
 
 // NewOptions defines and parses the raw command line arguments
@@ -43,14 +45,15 @@ func NewOptions() Options {
 	kingpin.Flag("pprof-listen-addr", "address:port to listen for pprof on, empty to disable (env - PPROF_LISTEN_ADDR)").Default("").Envar("PPROF_LISTEN_ADDR").StringVar(&opts.PprofListenAddr)
 	kingpin.Flag("allowed-endpoint", "allowed endpoint (Host header) to accept for incoming requests (env - ALLOWED_ENDPOINT)").Envar("ALLOWED_ENDPOINT").Required().PlaceHolder("my.host.example.com:8099").StringVar(&opts.AllowedSourceEndpoint)
 	kingpin.Flag("allowed-source-subnet", "allowed source IP addresses with netmask (env - ALLOWED_SOURCE_SUBNET)").Default("127.0.0.1/32").Envar("ALLOWED_SOURCE_SUBNET").StringsVar(&opts.AllowedSourceSubnet)
-	kingpin.Flag("aws-credentials", "set of AWS credentials (env - AWS_CREDENTIALS)").PlaceHolder("\"AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY\"").Envar("AWS_CREDENTIALS").StringsVar(&opts.AwsCredentials)
 	kingpin.Flag("aws-region", "send requests to this AWS S3 region (env - AWS_REGION)").Envar("AWS_REGION").Default("eu-central-1").StringVar(&opts.Region)
 	kingpin.Flag("upstream-insecure", "use insecure HTTP for upstream connections (env - UPSTREAM_INSECURE)").Envar("UPSTREAM_INSECURE").BoolVar(&opts.UpstreamInsecure)
 	kingpin.Flag("upstream-endpoint", "use this S3 endpoint for upstream connections, instead of public AWS S3 (env - UPSTREAM_ENDPOINT)").Envar("UPSTREAM_ENDPOINT").StringVar(&opts.UpstreamEndpoint)
 	kingpin.Flag("cert-file", "path to the certificate file (env - CERT_FILE)").Envar("CERT_FILE").Default("").StringVar(&opts.CertFile)
 	kingpin.Flag("key-file", "path to the private key file (env - KEY_FILE)").Envar("KEY_FILE").Default("").StringVar(&opts.KeyFile)
-	kingpin.Flag("write-datalake-credentials", "set of credentials that provide write access to the datalake").PlaceHolder("\"WRITE_DATALAKE_KEY_ID,WRITE_DATALAKE_ACCESS_KEY\"").Envar("WRITE_DATALAKE_CREDENTIALS").StringVar(&opts.WriteDatalakeCredentials)
-	kingpin.Flag("read-datalake-credentials", "set of credentials that provide read access to the datalake").PlaceHolder("\"READ_DATALAKE_KEY_ID,READ_DATALAKE_ACCESS_KEY\"").Envar("READ_DATALKE_CREDENTIALS").StringVar(&opts.ReadDatalakeCredentials)
+	kingpin.Flag("write-prod-s3-bucket-credentials", "set of credentials that provide write access to the prod s3 bucket").PlaceHolder("\"WRITE_PROD_S3_KEY_ID,WRITE_PROD_S3_ACCESS_KEY\"").Envar("WRITE_PROD_S3_BUCKET").StringVar(&opts.WriteProdS3Bucket)
+	kingpin.Flag("read-prod-s3-bucket-credentials", "set of credentials that provide read access to the prod s3 bucket").PlaceHolder("\"READ_PROD_S3_KEY_ID,READ_PROD_S3_ACCESS_KEY\"").Envar("READ_PROD_S3_BUCKET").StringVar(&opts.ReadProdS3Bucket)
+	kingpin.Flag("user-s3-bucket-credentials", "set of credentials that provide user read/write access to the users s3 bucket").PlaceHolder("\"READ_WRITE_USER_S3_KEY_ID,READ_WRITE_USER_S3_ACCESS_KEY\"").Envar("READ_WRITE_USER_CREDENTIALS").StringVar(&opts.UserS3Bucket)
+	kingpin.Flag("admin-s3-bucket-credentials", "set of credentials that provide admin level access read/write access to all s3 buckets").PlaceHolder("\"ADMIN_S3_KEY_ID,ADMIN_S3_ACCESS_KEY\"").Envar("ADMIN_S3_BUCKET_CREDENTIALS").StringVar(&opts.AdminS3Bucket)
 	kingpin.Parse()
 	return opts
 }
@@ -59,25 +62,29 @@ func ValidateJWTToken(token string) bool {
 	return true
 }
 
-func GetCredsBasedOnTokenAndOperation(opts Options, token string, op string) map[string]string {
-	writeCred := make(map[string]string)
-	readCred := make(map[string]string)
-	awsCreds := make(map[string]map[string]string)
+func CreateCred(argCred string) map[string]string {
+	cred := make(map[string]string)
+	d := strings.Split(argCred, ",")
 
-	d := strings.Split(opts.WriteDatalakeCredentials, ",")
 	if len(d) != 2 || len(d[0]) < 16 || len(d[1]) < 1 {
-		writeCred["ACCESS_KEY"] = "SECRET_KEY"
+		cred["UNKNOWN_ACCESS_KEY"] = "UNKNOWN_ACCESS_KEY"
 	} else {
-		writeCred[d[0]] = d[1]
+		cred[d[0]] = d[1]
 	}
 
-	readCred["ACCESS_KEY"] = "SECRET_KEY"
-	awsCreds["writer"] = writeCred
-	awsCreds["reader"] = readCred
-	if op != "writer" {
-		op = "reader"
-	}
-	return awsCreds[op]
+	return cred
+}
+
+// token may be used for validating the user, it's usage in this function is seeming less useful...
+func ParseCreds(opts Options, token string) map[string]map[string]string {
+	credMap := make(map[string]map[string]string)
+
+	credMap["WRITER"] = CreateCred(opts.WriteProdS3Bucket)
+	credMap["READER"] = CreateCred(opts.ReadProdS3Bucket)
+	credMap["USER"] = CreateCred(opts.UserS3Bucket)
+	credMap["ADMIN"] = CreateCred(opts.AdminS3Bucket)
+
+	return credMap
 }
 
 // NewAwsS3ReverseProxy parses all options and creates a new HTTP Handler
@@ -101,26 +108,19 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 		parsedAllowedSourceSubnet = append(parsedAllowedSourceSubnet, subnet)
 	}
 
-	// parsedAwsCredentials := make(map[string]string)
-	// for _, cred := range opts.AwsCredentials {
-	// 	d := strings.Split(cred, ",")
-	// 	if len(d) != 2 || len(d[0]) < 16 || len(d[1]) < 1 {
-	// 		return nil, fmt.Errorf("Invalid AWS credentials. Did you separate them with a ',' or are they too short?")
-	// 	}
-	// 	parsedAwsCredentials[d[0]] = d[1]
-	// }
-
 	if !ValidateJWTToken("test") {
 		return nil, fmt.Errorf("invalid jwt token, blocking request at reverse proxy")
 	}
-	parsedAwsCredentials := GetCredsBasedOnTokenAndOperation(opts, "test", "writer")
+	credMap := ParseCreds(opts, "test")
 	signers := make(map[string]*v4.Signer)
-	for accessKeyID, secretAccessKey := range parsedAwsCredentials {
-		log.Infof("accessKeyID: [%s], secretAccessKey: [%s]", accessKeyID, secretAccessKey)
-		signers[accessKeyID] = v4.NewSigner(credentials.NewStaticCredentialsFromCreds(credentials.Value{
-			AccessKeyID:     accessKeyID,
-			SecretAccessKey: secretAccessKey,
-		}))
+	for _, cred := range credMap {
+		for accessKeyID, secretAccessKey := range cred {
+			log.Infof("accessKeyID: [%s], secretAccessKey: [%s]", accessKeyID, secretAccessKey)
+			signers[accessKeyID] = v4.NewSigner(credentials.NewStaticCredentialsFromCreds(credentials.Value{
+				AccessKeyID:     accessKeyID,
+				SecretAccessKey: secretAccessKey,
+			}))
+		}
 	}
 
 	handler := &Handler{
@@ -129,7 +129,7 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 		UpstreamEndpoint:      opts.UpstreamEndpoint,
 		AllowedSourceEndpoint: opts.AllowedSourceEndpoint,
 		AllowedSourceSubnet:   parsedAllowedSourceSubnet,
-		AWSCredentials:        parsedAwsCredentials,
+		AllCredentials:        credMap,
 		Signers:               signers,
 	}
 	return handler, nil
@@ -152,7 +152,11 @@ func main() {
 		log.Infof("Allowing connections from %v.", subnet)
 	}
 	log.Infof("Accepting incoming requests for this endpoint: %v", handler.AllowedSourceEndpoint)
-	log.Infof("Parsed %d AWS credential sets.", len(handler.AWSCredentials))
+	for _, cred := range handler.AllCredentials {
+		for key := range cred {
+			log.Infof("Parsed 1 %s credential", key)
+		}
+	}
 
 	if len(opts.PprofListenAddr) > 0 && len(strings.Split(opts.PprofListenAddr, ":")) == 2 {
 		// avoid leaking pprof to the main application http servers

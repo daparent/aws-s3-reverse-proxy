@@ -2,6 +2,8 @@
     // Use IntelliSense to learn about possible attributes.
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    // The creds for s3 buckets below are for locally hosted s3 in a dev test environment and are useless anywhere else, don't
+    // get excited by their inclusion
     "version": "0.2.0",
     "configurations": [
         {
@@ -15,7 +17,10 @@
                 "--allowed-source-subnet=0.0.0.0/0", 
                 "--allowed-endpoint=192.168.5.20:8099",
                 "--upstream-insecure",
-                "--write-datalake-credentials=LucOgE6DamtdIkDLAw1V,kl0yp87lh8gMxTZkOF2qK60xT01mFh4zy9XcBP4S",
+                "--write-prod-s3-bucket-credentials=LucOgE6DamtdIkDLAw1V,kl0yp87lh8gMxTZkOF2qK60xT01mFh4zy9XcBP4S",
+                "--read-prod-s3-bucket-credentials=l54j8SOgGyBfwR9Xh9gh,RtHq6YLuPHfuP11oCCQhdomJ8XWdwTgI68hpVfKg",
+                "--user-s3-bucket-credentials=ICeQ4lKM8i2avuliUJgF,aZMuSrP3AfhesYK43HAFzvFM2AhpiE8sL232b0BV",
+                "--admin-s3-bucket-credentials=4UiFs6X9VmnZHD40gyGC,jz8wB0Yh7nUycItxWRyzYaC123si2zdyDIpntDiU",
                 "--aws-region=ca-east-01",
                 "--verbose"
             ]

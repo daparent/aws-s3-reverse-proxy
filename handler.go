@@ -37,8 +37,8 @@ type Handler struct {
 	// Allowed source IPs and subnets for incoming requests
 	AllowedSourceSubnet []*net.IPNet
 
-	// AWS Credentials, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
-	AWSCredentials map[string]string
+	// All the parsed credentials
+	AllCredentials map[string]map[string]string
 
 	// AWS Signature v4
 	Signers map[string]*v4.Signer
@@ -132,9 +132,11 @@ func (h *Handler) validateIncomingHeaders(req *http.Request) (string, string, er
 	region := match[2]
 
 	// Validate the received Credential (ACCESS_KEY_ID) is allowed
-	for accessKeyID := range h.AWSCredentials {
-		if subtle.ConstantTimeCompare([]byte(receivedAccessKeyID), []byte(accessKeyID)) == 1 {
-			return accessKeyID, region, nil
+	for _, cred := range h.AllCredentials {
+		for accessKeyID := range cred {
+			if subtle.ConstantTimeCompare([]byte(receivedAccessKeyID), []byte(accessKeyID)) == 1 {
+				return accessKeyID, region, nil
+			}
 		}
 	}
 	return "", "", fmt.Errorf("invalid AccessKeyID in Credential: %v", req)
