@@ -3,3 +3,4 @@ aws-s3-reverse-proxy.tar
 config
 test.txt
 test/env/.local
+env_vars.sh
