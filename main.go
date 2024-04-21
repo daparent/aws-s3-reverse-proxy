@@ -34,6 +34,8 @@ type Options struct {
 	ReadProdS3Bucket      string
 	UserS3Bucket          string
 	AdminS3Bucket         string
+	VaultRoleId           string
+	VaultUnwrapToken      string
 }
 
 // NewOptions defines and parses the raw command line arguments
@@ -54,6 +56,8 @@ func NewOptions() Options {
 	kingpin.Flag("read-prod-s3-bucket-credentials", "set of credentials that provide read access to the prod s3 bucket").PlaceHolder("\"READ_PROD_S3_KEY_ID,READ_PROD_S3_ACCESS_KEY\"").Envar("READ_PROD_S3_BUCKET").StringVar(&opts.ReadProdS3Bucket)
 	kingpin.Flag("user-s3-bucket-credentials", "set of credentials that provide user read/write access to the users s3 bucket").PlaceHolder("\"READ_WRITE_USER_S3_KEY_ID,READ_WRITE_USER_S3_ACCESS_KEY\"").Envar("READ_WRITE_USER_CREDENTIALS").StringVar(&opts.UserS3Bucket)
 	kingpin.Flag("admin-s3-bucket-credentials", "set of credentials that provide admin level access read/write access to all s3 buckets").PlaceHolder("\"ADMIN_S3_KEY_ID,ADMIN_S3_ACCESS_KEY\"").Envar("ADMIN_S3_BUCKET_CREDENTIALS").StringVar(&opts.AdminS3Bucket)
+	kingpin.Flag("vault-role-id", "the role_id for the hashicorp vault approle authentication method").PlaceHolder("\"VAULT_ROLE_ID\"").Envar("VAULT_ROLE_ID").StringVar(&opts.VaultRoleId)
+	kingpin.Flag("vault-unwrap-token", "a token that can unwrap wrapped tokens").PlaceHolder("\"VAULT_UNWRAP_TOKEN\"").Envar("VAULT_UNWRAP_TOKEN").StringVar(&opts.VaultUnwrapToken)
 	kingpin.Parse()
 	return opts
 }
@@ -137,6 +141,21 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 
 func main() {
 	opts := NewOptions()
+
+	s3BucketCreds, newerr := GetSecretWithVaultAgentToken(opts)
+	if newerr != nil {
+		log.Fatal(newerr)
+	} else {
+		log.Infof("Retrieved s3BucketCreds and here is a value: %s", s3BucketCreds.ProdRead.AccessKey)
+	}
+
+	vaultRenewClient, err := CreateVaultConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	vaultRenewClient.SetToken(opts.VaultUnwrapToken)
+	go TokenRenew(vaultRenewClient, opts.VaultUnwrapToken)
+
 	handler, err := NewAwsS3ReverseProxy(opts)
 	if err != nil {
 		log.Fatal(err)

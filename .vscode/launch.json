@@ -17,11 +17,9 @@
                 "--allowed-source-subnet=0.0.0.0/0", 
                 "--allowed-endpoint=192.168.5.20:8099",
                 "--upstream-insecure",
-                "--write-prod-s3-bucket-credentials=LucOgE6DamtdIkDLAw1V,kl0yp87lh8gMxTZkOF2qK60xT01mFh4zy9XcBP4S",
-                "--read-prod-s3-bucket-credentials=l54j8SOgGyBfwR9Xh9gh,RtHq6YLuPHfuP11oCCQhdomJ8XWdwTgI68hpVfKg",
-                "--user-s3-bucket-credentials=ICeQ4lKM8i2avuliUJgF,aZMuSrP3AfhesYK43HAFzvFM2AhpiE8sL232b0BV",
-                "--admin-s3-bucket-credentials=4UiFs6X9VmnZHD40gyGC,jz8wB0Yh7nUycItxWRyzYaC123si2zdyDIpntDiU",
                 "--aws-region=ca-east-01",
+                "--vault-role-id=AROLEID",
+                "--vault-unwrap-token=ATOKEN",
                 "--verbose"
             ]
         }
