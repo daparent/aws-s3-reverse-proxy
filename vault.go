@@ -17,6 +17,18 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+func CreateVaultConfig() (*vault.Client, error) {
+	config := vault.DefaultConfig() // modify for more granular configuration
+	// TODO: Make this address configurable
+	config.Address = "https://192.168.5.20:8200"
+	// config.TLSConfig().InsecureSkipVerify = true
+
+	transport := config.HttpClient.Transport.(*http.Transport)
+	transport.TLSClientConfig.InsecureSkipVerify = true
+
+	return vault.NewClient(config)
+}
+
 func GetTokenFromRoleAndSecretIds(client *vault.Client, roleId string, secretIdString string) (string, error) {
 	token := ""
 	if roleId != "" && roleId != "VAULT_ROLE_ID" && secretIdString != "" && secretIdString != "VAULT_SECRET_ID" {
@@ -57,6 +69,7 @@ func GetReverseProxyToken(client *vault.Client, opts Options) (string, error) {
 }
 
 func CreateSigner(client *vault.Client, secretName string) (string, *v4.Signer, error) {
+	// TODO: make the key-value path configurable
 	secret, err := client.KVv2("kv/s3").Get(context.Background(), secretName)
 	if err != nil {
 		return "", nil, fmt.Errorf("unable to read %s: %w", secretName, err)
@@ -83,6 +96,7 @@ func GetSignersWithVaultAgentToken(opts Options) (map[string]*v4.Signer, error) 
 	}
 	client.SetToken(token)
 
+	// TODO: Make all of these secret names configurable
 	keyid, signer, err := CreateSigner(client, "datalake_write")
 	if err != nil {
 		return signers, err
@@ -215,15 +229,4 @@ func TokenRenew(client *vault.Client, token string) {
 			}
 		}
 	}
-}
-
-func CreateVaultConfig() (*vault.Client, error) {
-	config := vault.DefaultConfig() // modify for more granular configuration
-	config.Address = "https://192.168.5.20:8200"
-	// config.TLSConfig().InsecureSkipVerify = true
-
-	transport := config.HttpClient.Transport.(*http.Transport)
-	transport.TLSClientConfig.InsecureSkipVerify = true
-
-	return vault.NewClient(config)
 }

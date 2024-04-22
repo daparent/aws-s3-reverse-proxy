@@ -1,3 +1,4 @@
+// This is a doc comment
 package main
 
 import (

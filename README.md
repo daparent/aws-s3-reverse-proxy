@@ -127,3 +127,12 @@ details, see the `LICENSE` file in the repository.
 
 `aws-s3-reverse-proxy` was created by Thomas Kriechbaumer, and is maintained
 by the community.
+
+
+# TODO:
+- parse authentication tokens
+  - retrieve username and groups
+  - audit all actions performed for that user
+- make more of the hard coded values configurable, mostly in vault.go
+- fix up the tests that currently exist and add in some new ones
+- work out how to get this hooked up to prometheus for stats
