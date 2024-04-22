@@ -33,9 +33,7 @@ credentials to re-sign each request.
 ## Releases
 
 Get the latest Docker image from [from
-DockerHub](https://hub.docker.com/r/thomaskriechbaumer/aws-s3-reverse-proxy/tags)
-or download the source release [from
-GitHub](https://github.com/Kriechi/aws-s3-reverse-proxy/releases).
+DockerHub](https://docker.io/danparent/aws-s3-reverse-proxy)
 
 ## Features
 
@@ -56,13 +54,13 @@ guide](https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/configuring-sdk
 
 The available options and help information can be displayed with:
 ```
-docker run --rm aws-s3-reverse-proxy --help
+docker run --rm danparent/aws-s3-reverse-proxy --help
 ```
 
 ## Build
 All build dependencies and steps are contained in the `Dockerfile`:
 ```
-docker build -t aws-s3-reverse-proxy .
+docker build -t danparent/aws-s3-reverse-proxy:latest .
 ```
 
 ## Run
@@ -110,6 +108,9 @@ Client with the [official awscli](https://aws.amazon.com/cli/):
 ```
 $ aws s3 --endpoint-url http://my.host.example.com:8099 ls s3://my-bucket/
 ```
+or
+```
+$ s3cmd ls http://localhost:8099 ls s3://tools-datalake/
 
 ## Contributing
 
