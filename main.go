@@ -11,8 +11,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/alecthomas/kingpin/v2"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	v4 "github.com/aws/aws-sdk-go/aws/signer/v4"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -24,18 +22,14 @@ type Options struct {
 	PprofListenAddr       string
 	AllowedSourceEndpoint string
 	AllowedSourceSubnet   []string
-	AwsCredentials        []string
 	Region                string
 	UpstreamInsecure      bool
 	UpstreamEndpoint      string
 	CertFile              string
 	KeyFile               string
-	WriteProdS3Bucket     string
-	ReadProdS3Bucket      string
-	UserS3Bucket          string
-	AdminS3Bucket         string
 	VaultRoleId           string
-	VaultUnwrapToken      string
+	VaultSecretId         string
+	VaultTokenLocation    string
 }
 
 // NewOptions defines and parses the raw command line arguments
@@ -52,43 +46,15 @@ func NewOptions() Options {
 	kingpin.Flag("upstream-endpoint", "use this S3 endpoint for upstream connections, instead of public AWS S3 (env - UPSTREAM_ENDPOINT)").Envar("UPSTREAM_ENDPOINT").StringVar(&opts.UpstreamEndpoint)
 	kingpin.Flag("cert-file", "path to the certificate file (env - CERT_FILE)").Envar("CERT_FILE").Default("").StringVar(&opts.CertFile)
 	kingpin.Flag("key-file", "path to the private key file (env - KEY_FILE)").Envar("KEY_FILE").Default("").StringVar(&opts.KeyFile)
-	kingpin.Flag("write-prod-s3-bucket-credentials", "set of credentials that provide write access to the prod s3 bucket").PlaceHolder("\"WRITE_PROD_S3_KEY_ID,WRITE_PROD_S3_ACCESS_KEY\"").Envar("WRITE_PROD_S3_BUCKET").StringVar(&opts.WriteProdS3Bucket)
-	kingpin.Flag("read-prod-s3-bucket-credentials", "set of credentials that provide read access to the prod s3 bucket").PlaceHolder("\"READ_PROD_S3_KEY_ID,READ_PROD_S3_ACCESS_KEY\"").Envar("READ_PROD_S3_BUCKET").StringVar(&opts.ReadProdS3Bucket)
-	kingpin.Flag("user-s3-bucket-credentials", "set of credentials that provide user read/write access to the users s3 bucket").PlaceHolder("\"READ_WRITE_USER_S3_KEY_ID,READ_WRITE_USER_S3_ACCESS_KEY\"").Envar("READ_WRITE_USER_CREDENTIALS").StringVar(&opts.UserS3Bucket)
-	kingpin.Flag("admin-s3-bucket-credentials", "set of credentials that provide admin level access read/write access to all s3 buckets").PlaceHolder("\"ADMIN_S3_KEY_ID,ADMIN_S3_ACCESS_KEY\"").Envar("ADMIN_S3_BUCKET_CREDENTIALS").StringVar(&opts.AdminS3Bucket)
 	kingpin.Flag("vault-role-id", "the role_id for the hashicorp vault approle authentication method").PlaceHolder("\"VAULT_ROLE_ID\"").Envar("VAULT_ROLE_ID").StringVar(&opts.VaultRoleId)
-	kingpin.Flag("vault-unwrap-token", "a token that can unwrap wrapped tokens").PlaceHolder("\"VAULT_UNWRAP_TOKEN\"").Envar("VAULT_UNWRAP_TOKEN").StringVar(&opts.VaultUnwrapToken)
+	kingpin.Flag("vault-secret-id", "the secret_id for the hashicorp vault approle authentication method").PlaceHolder("\"VAULT_SECRET_ID\"").Envar("VAULT_SECRET_ID").StringVar(&opts.VaultSecretId)
+	kingpin.Flag("vault-token-location", "a filepath to a token that can get s3 bucket credentials").PlaceHolder("/vault-agent/s3-reverse-proxy.token").Envar("VAULT_TOKEN_LOCATION").StringVar(&opts.VaultTokenLocation)
 	kingpin.Parse()
 	return opts
 }
 
 func ValidateJWTToken(token string) bool {
 	return true
-}
-
-func CreateCred(argCred string) map[string]string {
-	cred := make(map[string]string)
-	d := strings.Split(argCred, ",")
-
-	if len(d) != 2 || len(d[0]) < 16 || len(d[1]) < 1 {
-		cred["UNKNOWN_ACCESS_KEY"] = "UNKNOWN_ACCESS_KEY"
-	} else {
-		cred[d[0]] = d[1]
-	}
-
-	return cred
-}
-
-// token may be used for validating the user, it's usage in this function is seeming less useful...
-func ParseCreds(opts Options, token string) map[string]map[string]string {
-	credMap := make(map[string]map[string]string)
-
-	credMap["WRITER"] = CreateCred(opts.WriteProdS3Bucket)
-	credMap["READER"] = CreateCred(opts.ReadProdS3Bucket)
-	credMap["USER"] = CreateCred(opts.UserS3Bucket)
-	credMap["ADMIN"] = CreateCred(opts.AdminS3Bucket)
-
-	return credMap
 }
 
 // NewAwsS3ReverseProxy parses all options and creates a new HTTP Handler
@@ -115,16 +81,12 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 	if !ValidateJWTToken("test") {
 		return nil, fmt.Errorf("invalid jwt token, blocking request at reverse proxy")
 	}
-	credMap := ParseCreds(opts, "test")
-	signers := make(map[string]*v4.Signer)
-	for _, cred := range credMap {
-		for accessKeyID, secretAccessKey := range cred {
-			log.Infof("accessKeyID: [%s], secretAccessKey: [%s]", accessKeyID, secretAccessKey)
-			signers[accessKeyID] = v4.NewSigner(credentials.NewStaticCredentialsFromCreds(credentials.Value{
-				AccessKeyID:     accessKeyID,
-				SecretAccessKey: secretAccessKey,
-			}))
-		}
+
+	signers, err := GetSignersWithVaultAgentToken(opts)
+	if err != nil {
+		log.Fatal(err)
+	} else {
+		log.Info("Retrieved bucket signers object")
 	}
 
 	handler := &Handler{
@@ -133,7 +95,6 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 		UpstreamEndpoint:      opts.UpstreamEndpoint,
 		AllowedSourceEndpoint: opts.AllowedSourceEndpoint,
 		AllowedSourceSubnet:   parsedAllowedSourceSubnet,
-		AllCredentials:        credMap,
 		Signers:               signers,
 	}
 	return handler, nil
@@ -141,20 +102,6 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 
 func main() {
 	opts := NewOptions()
-
-	s3BucketCreds, newerr := GetSecretWithVaultAgentToken(opts)
-	if newerr != nil {
-		log.Fatal(newerr)
-	} else {
-		log.Infof("Retrieved s3BucketCreds and here is a value: %s", s3BucketCreds.ProdRead.AccessKey)
-	}
-
-	vaultRenewClient, err := CreateVaultConfig()
-	if err != nil {
-		log.Fatal(err)
-	}
-	vaultRenewClient.SetToken(opts.VaultUnwrapToken)
-	go TokenRenew(vaultRenewClient, opts.VaultUnwrapToken)
 
 	handler, err := NewAwsS3ReverseProxy(opts)
 	if err != nil {
@@ -171,11 +118,6 @@ func main() {
 		log.Infof("Allowing connections from %v.", subnet)
 	}
 	log.Infof("Accepting incoming requests for this endpoint: %v", handler.AllowedSourceEndpoint)
-	for _, cred := range handler.AllCredentials {
-		for key := range cred {
-			log.Infof("Parsed 1 %s credential", key)
-		}
-	}
 
 	if len(opts.PprofListenAddr) > 0 && len(strings.Split(opts.PprofListenAddr, ":")) == 2 {
 		// avoid leaking pprof to the main application http servers

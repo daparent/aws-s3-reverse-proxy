@@ -7,12 +7,110 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	v4 "github.com/aws/aws-sdk-go/aws/signer/v4"
 	vault "github.com/hashicorp/vault/api"
 	auth "github.com/hashicorp/vault/api/auth/approle"
 	log "github.com/sirupsen/logrus"
 )
+
+func GetTokenFromRoleAndSecretIds(client *vault.Client, roleId string, secretIdString string) (string, error) {
+	token := ""
+	if roleId != "" && roleId != "VAULT_ROLE_ID" && secretIdString != "" && secretIdString != "VAULT_SECRET_ID" {
+		secretId := &auth.SecretID{FromString: secretIdString}
+		appRoleAuth, err := auth.NewAppRoleAuth(roleId, secretId)
+		if err != nil {
+			return token, fmt.Errorf("unable to initialize AppRole auth method: %w", err)
+		} else {
+			authInfo, err := client.Auth().Login(context.Background(), appRoleAuth)
+			if err != nil {
+				return token, fmt.Errorf("unable to initialize AppRole auth method: %w", err)
+			} else {
+				token = authInfo.Auth.ClientToken
+			}
+		}
+	}
+	return token, nil
+}
+
+func GetTokenFromFileLocation(fileLocation string) (string, error) {
+	if fileLocation != "" {
+		tokenBytes, err := os.ReadFile(fileLocation)
+		if err != nil {
+			return "", err
+		}
+		return strings.ReplaceAll(string(tokenBytes), "\n", ""), nil
+	}
+	return "", fmt.Errorf("unable to read token from file location: %s", fileLocation)
+}
+
+func GetReverseProxyToken(client *vault.Client, opts Options) (string, error) {
+	if opts.VaultRoleId != "" && opts.VaultRoleId != "VAULT_ROLE_ID" {
+		return GetTokenFromRoleAndSecretIds(client, opts.VaultRoleId, opts.VaultSecretId)
+	} else if opts.VaultTokenLocation != "" {
+		return GetTokenFromFileLocation(opts.VaultTokenLocation)
+	}
+	return "", fmt.Errorf("unable to determine method for retrieving the reverse proxy vault token")
+}
+
+func CreateSigner(client *vault.Client, secretName string) (string, *v4.Signer, error) {
+	secret, err := client.KVv2("kv/s3").Get(context.Background(), secretName)
+	if err != nil {
+		return "", nil, fmt.Errorf("unable to read %s: %w", secretName, err)
+	}
+	keyid := secret.Data["keyid"].(string)
+	return keyid,
+		v4.NewSigner(credentials.NewStaticCredentialsFromCreds(credentials.Value{
+			AccessKeyID:     keyid,
+			SecretAccessKey: secret.Data["accessKey"].(string),
+		})),
+		nil
+}
+
+func GetSignersWithVaultAgentToken(opts Options) (map[string]*v4.Signer, error) {
+	signers := make(map[string]*v4.Signer)
+	client, err := CreateVaultConfig()
+	if err != nil {
+		return signers, fmt.Errorf("unable to initialize Vault client: %w", err)
+	}
+
+	token, err := GetReverseProxyToken(client, opts)
+	if err != nil {
+		return signers, err
+	}
+	client.SetToken(token)
+
+	keyid, signer, err := CreateSigner(client, "datalake_write")
+	if err != nil {
+		return signers, err
+	}
+	signers[keyid] = signer
+
+	keyid, signer, err = CreateSigner(client, "datalake_read")
+	if err != nil {
+		return signers, err
+	}
+	signers[keyid] = signer
+
+	keyid, signer, err = CreateSigner(client, "datalake_users")
+	if err != nil {
+		return signers, err
+	}
+	signers[keyid] = signer
+
+	keyid, signer, err = CreateSigner(client, "datalake_admin")
+	if err != nil {
+		return signers, err
+	}
+	signers[keyid] = signer
+
+	return signers, nil
+}
+
+/*** If token wrapping is chosen here is the starting point of that support ***/
 
 type WrappedToken struct {
 	Token            string `json:"token"`
@@ -23,16 +121,19 @@ type WrappedToken struct {
 	Wrapped_accessor string `json:"wrapped_accessor"`
 }
 
-type S3Keys struct {
-	AccessKey string
-	SecretKey string
-}
+func GetSecretId(client *vault.Client) (string, error) {
+	// read in the wrapped secret-id
+	WrappedSecretIdFilename := "/vault-agent/token-wrapped"
 
-type S3BucketCreds struct {
-	ProdWrite S3Keys
-	ProdRead  S3Keys
-	Users     S3Keys
-	Admin     S3Keys
+	wrappedToken, err := ParseWrappedSecret(WrappedSecretIdFilename)
+	if err != nil {
+		return "", errors.New("unable to parse JSON for wrapped secret id")
+	}
+	unWrappedSecret, err := client.Logical().Unwrap(wrappedToken.Token)
+	if err != nil {
+		return "", err
+	}
+	return unWrappedSecret.Data["secret_id"].(string), nil
 }
 
 func DoesFileExist(path string) (found bool, err error) {
@@ -125,89 +226,4 @@ func CreateVaultConfig() (*vault.Client, error) {
 	transport.TLSClientConfig.InsecureSkipVerify = true
 
 	return vault.NewClient(config)
-}
-
-func GetSecretWithVaultAgentToken(opts Options) (S3BucketCreds, error) {
-	client, err := CreateVaultConfig()
-	if err != nil {
-		return S3BucketCreds{}, fmt.Errorf("unable to initialize Vault client: %w", err)
-	}
-
-	// read in the wrapped secret-id
-	WrappedSecretIdFilename := "/vault-agent/token-wrapped"
-
-	wrappedToken, err := ParseWrappedSecret(WrappedSecretIdFilename)
-	if err != nil {
-		return S3BucketCreds{}, errors.New("Unable to parse JSON for wrapped secret id")
-	}
-	unWrappedSecret, err := client.Logical().Unwrap(wrappedToken.Token)
-	if err != nil {
-		return S3BucketCreds{}, err
-	}
-	secretIdString := unWrappedSecret.Data["secret_id"].(string)
-
-	// now that roleId and secretId are known it's time to login and get the token that lets us get at the secrets
-	secretId := &auth.SecretID{FromString: secretIdString}
-	appRoleAuth, err := auth.NewAppRoleAuth(opts.VaultRoleId, secretId)
-	if err != nil {
-		return S3BucketCreds{}, fmt.Errorf("unable to initialize AppRole auth method: %w", err)
-	}
-	authInfo, err := client.Auth().Login(context.Background(), appRoleAuth)
-	if err != nil {
-		return S3BucketCreds{}, fmt.Errorf("unable to login to AppRole auth method: %w", err)
-	}
-	if authInfo == nil {
-		return S3BucketCreds{}, fmt.Errorf("no auth info was returned after login")
-	}
-	// get secret from the default mount path for KV v2 in dev mode, "secret"
-
-	// NEED TO DELETE THE token when done, it shouldn't be good anymore anyway since it will be used the maximum 4 times
-	datalakeWrite, err := client.KVv2("kv/s3").Get(context.Background(), "datalake_write")
-	if err != nil {
-		return S3BucketCreds{}, fmt.Errorf("unable to read datalake-write: %w", err)
-	}
-	prodWrite := S3Keys{
-		AccessKey: datalakeWrite.Data["accessKey"].(string),
-		SecretKey: datalakeWrite.Data["secretKey"].(string),
-	}
-	datalakeRead, err := client.KVv2("kv/s3").Get(context.Background(), "datalake_read")
-	if err != nil {
-		return S3BucketCreds{}, fmt.Errorf("unable to read datalake-read: %w", err)
-	}
-	prodRead := S3Keys{
-		AccessKey: datalakeRead.Data["accessKey"].(string),
-		SecretKey: datalakeRead.Data["secretKey"].(string),
-	}
-	datalakeUsers, err := client.KVv2("kv/s3").Get(context.Background(), "datalake_users")
-	if err != nil {
-		return S3BucketCreds{}, fmt.Errorf("unable to read datalake-users: %w", err)
-	}
-	users := S3Keys{
-		AccessKey: datalakeUsers.Data["accessKey"].(string),
-		SecretKey: datalakeUsers.Data["secretKey"].(string),
-	}
-	datalakeAdmins, err := client.KVv2("kv/s3").Get(context.Background(), "datalake_amdin")
-	if err != nil {
-		return S3BucketCreds{}, fmt.Errorf("unable to read datalake-admin: %w", err)
-	}
-	admin := S3Keys{
-		AccessKey: datalakeAdmins.Data["accessKey"].(string),
-		SecretKey: datalakeAdmins.Data["secretKey"].(string),
-	}
-
-	s3BucketCreds := S3BucketCreds{
-		ProdRead:  prodRead,
-		ProdWrite: prodWrite,
-		Users:     users,
-		Admin:     admin,
-	}
-
-	// data map can contain more than one key-value pair,
-	// in this case we're just grabbing one of them
-	// value, ok := datalakeWrite.Data["accessKey"].(string)
-	// if !ok {
-	// 	return "", fmt.Errorf("value type assertion failed: %T %#v", datalakeWrite.Data["accessKey"], datalakeWrite.Data["accessKey"])
-	// }
-
-	return s3BucketCreds, nil
 }

@@ -37,9 +37,6 @@ type Handler struct {
 	// Allowed source IPs and subnets for incoming requests
 	AllowedSourceSubnet []*net.IPNet
 
-	// All the parsed credentials
-	AllCredentials map[string]map[string]string
-
 	// AWS Signature v4
 	Signers map[string]*v4.Signer
 
@@ -132,14 +129,12 @@ func (h *Handler) validateIncomingHeaders(req *http.Request) (string, string, er
 	region := match[2]
 
 	// Validate the received Credential (ACCESS_KEY_ID) is allowed
-	for _, cred := range h.AllCredentials {
-		for accessKeyID := range cred {
-			if subtle.ConstantTimeCompare([]byte(receivedAccessKeyID), []byte(accessKeyID)) == 1 {
-				return accessKeyID, region, nil
-			}
-		}
+	cred, err := h.Signers[receivedAccessKeyID].Credentials.Get()
+	if err == nil &&
+		subtle.ConstantTimeCompare([]byte(receivedAccessKeyID), []byte(cred.AccessKeyID)) == 1 {
+		return receivedAccessKeyID, region, nil
 	}
-	return "", "", fmt.Errorf("invalid AccessKeyID in Credential: %v", req)
+	return "", "", fmt.Errorf("invalid AccessKeyID in Credential: %v, err: %w", req, err)
 }
 
 func (h *Handler) generateFakeIncomingRequest(signer *v4.Signer, req *http.Request, region string) (*http.Request, error) {
