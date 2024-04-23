@@ -28,6 +28,8 @@ type Options struct {
 	UpstreamEndpoint      string
 	CertFile              string
 	KeyFile               string
+	VaultInsecure         bool
+	VaultAddress          string
 	VaultRoleId           string
 	VaultSecretId         string
 	VaultTokenLocation    string
@@ -47,6 +49,8 @@ func NewOptions() Options {
 	kingpin.Flag("upstream-endpoint", "use this S3 endpoint for upstream connections, instead of public AWS S3 (env - UPSTREAM_ENDPOINT)").Envar("UPSTREAM_ENDPOINT").StringVar(&opts.UpstreamEndpoint)
 	kingpin.Flag("cert-file", "path to the certificate file (env - CERT_FILE)").Envar("CERT_FILE").Default("").StringVar(&opts.CertFile)
 	kingpin.Flag("key-file", "path to the private key file (env - KEY_FILE)").Envar("KEY_FILE").Default("").StringVar(&opts.KeyFile)
+	kingpin.Flag("vault-insecure", "whether or not to use the InsecureSkipVerify feature for the connection").Envar("VAULT_INSECURE").BoolVar(&opts.VaultInsecure)
+	kingpin.Flag("vault-address", "scheme://fqdn:port, usually something like https://localhost:8200").PlaceHolder("https://localhost:8200").Envar("VAULT_ADDRESS").StringVar(&opts.VaultAddress)
 	kingpin.Flag("vault-role-id", "the role_id for the hashicorp vault approle authentication method").PlaceHolder("\"VAULT_ROLE_ID\"").Envar("VAULT_ROLE_ID").StringVar(&opts.VaultRoleId)
 	kingpin.Flag("vault-secret-id", "the secret_id for the hashicorp vault approle authentication method").PlaceHolder("\"VAULT_SECRET_ID\"").Envar("VAULT_SECRET_ID").StringVar(&opts.VaultSecretId)
 	kingpin.Flag("vault-token-location", "a filepath to a token that can get s3 bucket credentials").PlaceHolder("/vault-agent/s3-reverse-proxy.token").Envar("VAULT_TOKEN_LOCATION").StringVar(&opts.VaultTokenLocation)

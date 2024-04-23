@@ -11,11 +11,12 @@
             "mode": "debug",
             "program": "${fileDirname}",
             "args": [
-                "--upstream-endpoint=192.168.5.20:9000", 
+                "--upstream-endpoint=localhost:9000", 
                 "--allowed-source-subnet=0.0.0.0/0", 
-                "--allowed-endpoint=192.168.5.20:8099",
+                "--allowed-endpoint=localhost:8099",
                 "--upstream-insecure",
                 "--aws-region=ca-east-01",
+                "--vault-address=https://localhost:8200",
                 "--vault-token-location=/vault-agent/s3-reverse-proxy.token",
                 "--verbose"
             ]

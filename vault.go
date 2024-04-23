@@ -17,11 +17,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func CreateVaultConfig() (*vault.Client, error) {
+func CreateVaultConfig(address string, insecure bool) (*vault.Client, error) {
 	config := vault.DefaultConfig() // modify for more granular configuration
 	// TODO: Make this address configurable
-	config.Address = "https://192.168.5.20:8200"
-	// config.TLSConfig().InsecureSkipVerify = true
+	config.Address = address
+	if insecure {
+		config.TLSConfig().InsecureSkipVerify = true
+	}
 
 	transport := config.HttpClient.Transport.(*http.Transport)
 	transport.TLSClientConfig.InsecureSkipVerify = true
@@ -85,7 +87,7 @@ func CreateSigner(client *vault.Client, secretName string) (string, *v4.Signer, 
 
 func GetSignersWithVaultAgentToken(opts Options) (map[string]*v4.Signer, error) {
 	signers := make(map[string]*v4.Signer)
-	client, err := CreateVaultConfig()
+	client, err := CreateVaultConfig(opts.VaultAddress, opts.VaultInsecure)
 	if err != nil {
 		return signers, fmt.Errorf("unable to initialize Vault client: %w", err)
 	}
