@@ -136,3 +136,12 @@ by the community.
 - make more of the hard coded values configurable, mostly in vault.go
 - fix up the tests that currently exist and add in some new ones
 - work out how to get this hooked up to prometheus for stats
+
+
+# TIDBITS:
+
+`git update-index --assume-unchanged <file>` to stop checking changes to a file,
+something like .vscode/launch.json which will have specific values set in it based
+on the system.
+`git update-index --no-assume-unchanged <file>` to start tracking changes again so
+the file can be checked in and pushed.
