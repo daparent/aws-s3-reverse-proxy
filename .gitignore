@@ -4,3 +4,4 @@ config
 test.txt
 test/env/.local
 env_vars.sh
+.vscode/launch.json
