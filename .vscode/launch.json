@@ -17,7 +17,7 @@
                 "--upstream-insecure",
                 "--aws-region=ca-east-01",
                 "--vault-address=https://localhost:8200",
-                "--vault-token-location=/vault-agent/s3-reverse-proxy.token",
+                "--vault-token-location=/workspaces/vault-agent/s3-reverse-proxy.token",
                 "--verbose"
             ]
         }
