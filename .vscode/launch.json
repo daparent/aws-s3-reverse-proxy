@@ -18,6 +18,11 @@
                 "--aws-region=ca-east-01",
                 "--vault-address=https://localhost:8200",
                 "--vault-token-location=/workspaces/vault-agent/s3-reverse-proxy.token",
+                "--vault-kv-path=kv/s3",
+                "--vault-kv-secret-names=datalake_write",
+                "--vault-kv-secret-names=datalake_read",
+                "--vault-kv-secret-names=datalake_users",
+                "--vault-kv-secret-names=datalake_admin",
                 "--verbose"
             ]
         }
