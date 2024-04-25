@@ -19,7 +19,6 @@ import (
 
 func CreateVaultConfig(address string, insecure bool) (*vault.Client, error) {
 	config := vault.DefaultConfig() // modify for more granular configuration
-	// TODO: Make this address configurable
 	config.Address = address
 	if insecure {
 		config.TLSConfig().InsecureSkipVerify = true
@@ -70,9 +69,9 @@ func GetReverseProxyToken(client *vault.Client, opts Options) (string, error) {
 	return "", fmt.Errorf("unable to determine method for retrieving the reverse proxy vault token")
 }
 
-func CreateSigner(client *vault.Client, secretName string) (string, *v4.Signer, error) {
+func CreateSigner(client *vault.Client, kvPath string, secretName string) (string, *v4.Signer, error) {
 	// TODO: make the key-value path configurable
-	secret, err := client.KVv2("kv/s3").Get(context.Background(), secretName)
+	secret, err := client.KVv2(kvPath).Get(context.Background(), secretName)
 	if err != nil {
 		return "", nil, fmt.Errorf("unable to read %s: %w", secretName, err)
 	}
@@ -98,30 +97,13 @@ func GetSignersWithVaultAgentToken(opts Options) (map[string]*v4.Signer, error) 
 	}
 	client.SetToken(token)
 
-	// TODO: Make all of these secret names configurable
-	keyid, signer, err := CreateSigner(client, "datalake_write")
-	if err != nil {
-		return signers, err
+	for _, name := range opts.VaultSecretNames {
+		keyid, signer, err := CreateSigner(client, opts.VaultKVPath, name)
+		if err != nil {
+			return signers, err
+		}
+		signers[keyid] = signer
 	}
-	signers[keyid] = signer
-
-	keyid, signer, err = CreateSigner(client, "datalake_read")
-	if err != nil {
-		return signers, err
-	}
-	signers[keyid] = signer
-
-	keyid, signer, err = CreateSigner(client, "datalake_users")
-	if err != nil {
-		return signers, err
-	}
-	signers[keyid] = signer
-
-	keyid, signer, err = CreateSigner(client, "datalake_admin")
-	if err != nil {
-		return signers, err
-	}
-	signers[keyid] = signer
 
 	return signers, nil
 }

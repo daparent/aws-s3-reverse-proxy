@@ -33,6 +33,8 @@ type Options struct {
 	VaultRoleId           string
 	VaultSecretId         string
 	VaultTokenLocation    string
+	VaultKVPath           string
+	VaultSecretNames      []string
 }
 
 // NewOptions defines and parses the raw command line arguments
@@ -54,6 +56,8 @@ func NewOptions() Options {
 	kingpin.Flag("vault-role-id", "the role_id for the hashicorp vault approle authentication method").PlaceHolder("\"VAULT_ROLE_ID\"").Envar("VAULT_ROLE_ID").StringVar(&opts.VaultRoleId)
 	kingpin.Flag("vault-secret-id", "the secret_id for the hashicorp vault approle authentication method").PlaceHolder("\"VAULT_SECRET_ID\"").Envar("VAULT_SECRET_ID").StringVar(&opts.VaultSecretId)
 	kingpin.Flag("vault-token-location", "a filepath to a token that can get s3 bucket credentials").PlaceHolder("/vault-agent/s3-reverse-proxy.token").Envar("VAULT_TOKEN_LOCATION").StringVar(&opts.VaultTokenLocation)
+	kingpin.Flag("vault-kv-path", "the key-value secret engine path used to access s3 bucket credentials").PlaceHolder("kv/s3").Envar("VAULT_KV_PATH").StringVar(&opts.VaultKVPath)
+	kingpin.Flag("vault-kv-secret-names", "the names of the secrets to read in").PlaceHolder("datalake_write").Envar("VAULT_KV_SECRET_NAMES").StringsVar(&opts.VaultSecretNames)
 	kingpin.Parse()
 	return opts
 }
